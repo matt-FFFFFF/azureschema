@@ -1,0 +1,20 @@
+# Build output
+/azureschema
+*.exe
+/dist/
+
+# Test/coverage artifacts
+*.test
+coverage.out
+coverage.html
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
