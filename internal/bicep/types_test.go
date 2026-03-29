@@ -327,7 +327,10 @@ func TestTypeEntryUnmarshalJSON(t *testing.T) {
 
 	t.Run("null elements clears both fields", func(t *testing.T) {
 		data := []byte(`{"$type": "UnionType", "elements": null}`)
-		var te TypeEntry
+		te := TypeEntry{
+			Elements:   []Ref{{Ref: "#/1"}},
+			ElementMap: map[string]Ref{"a": {Ref: "#/0"}},
+		}
 		if err := json.Unmarshal(data, &te); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
@@ -341,7 +344,10 @@ func TestTypeEntryUnmarshalJSON(t *testing.T) {
 
 	t.Run("null elements for DiscriminatedObjectType clears both fields", func(t *testing.T) {
 		data := []byte(`{"$type": "DiscriminatedObjectType", "name": "Test", "elements": null}`)
-		var te TypeEntry
+		te := TypeEntry{
+			Elements:   []Ref{{Ref: "#/1"}},
+			ElementMap: map[string]Ref{"ftp": {Ref: "#/2"}},
+		}
 		if err := json.Unmarshal(data, &te); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}

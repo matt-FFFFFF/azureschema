@@ -457,7 +457,10 @@ func TestSummaryDiscriminatedObjectType(t *testing.T) {
 
 	t.Run("Required summary excludes readOnly baseProperties", func(t *testing.T) {
 		var buf bytes.Buffer
-		Summary(&buf, resolver, 4, "Microsoft.Web/sites/policies", "2023-01-01")
+		err := Summary(&buf, resolver, 4, "Microsoft.Web/sites/policies", "2023-01-01")
+		if err != nil {
+			t.Fatalf("Summary: %v", err)
+		}
 		output := buf.String()
 
 		// id is read-only, not required
