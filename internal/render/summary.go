@@ -114,7 +114,7 @@ func printProps(w io.Writer, resolver *bicep.Resolver, t *bicep.TypeEntry, inden
 		fmt.Fprintf(w, "%s  %s: %s%s%s\n", indent, name, tstr, flags, desc)
 
 		// Recurse into nested ObjectType or DiscriminatedObjectType properties
-		if resolved != nil && (resolved.Type == "ObjectType" || resolved.Type == "DiscriminatedObjectType") && (resolved.Properties != nil || resolved.BaseProperties != nil) {
+		if resolved != nil && (resolved.Type == "ObjectType" || resolved.Type == "DiscriminatedObjectType") && len(effectiveProperties(resolved)) > 0 {
 			if depth < resolver.MaxDepth {
 				printProps(w, resolver, resolved, indent+"    ", depth+1)
 			} else {
