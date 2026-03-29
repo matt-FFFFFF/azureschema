@@ -163,6 +163,48 @@ func (r *Resolver) resolve(t *TypeEntry, depth int) *ResolvedType {
 		}
 		return res
 
+	case "DiscriminatedObjectType":
+		// Treat as an object: merge baseProperties and present discriminated variants as oneOf.
+		res := &ResolvedType{Type: "object"}
+		if t.Name != nil {
+			res.Name = *t.Name
+		}
+		allProps := make(map[string]PropertyDef)
+		for k, v := range t.BaseProperties {
+			allProps[k] = v
+		}
+		if len(allProps) > 0 {
+			res.Properties = make(map[string]*ResolvedType, len(allProps))
+			for name, prop := range allProps {
+				propRes := &ResolvedType{}
+				if idx, err := prop.Type.Index(); err == nil && idx >= 0 && idx < len(r.Types) {
+					propRes = r.resolve(&r.Types[idx], depth+1)
+				}
+				if prop.Description != "" {
+					propRes.Description = prop.Description
+				}
+				if prop.IsRequired() {
+					b := true
+					propRes.Required = &b
+				}
+				if prop.IsReadOnly() {
+					b := true
+					propRes.ReadOnly = &b
+				}
+				if prop.IsWriteOnly() {
+					b := true
+					propRes.WriteOnly = &b
+				}
+				res.Properties[name] = propRes
+			}
+		}
+		for _, ref := range t.ElementMap {
+			if idx, err := ref.Index(); err == nil && idx >= 0 && idx < len(r.Types) {
+				res.OneOf = append(res.OneOf, r.resolve(&r.Types[idx], depth+1))
+			}
+		}
+		return res
+
 	default:
 		return &ResolvedType{Type: typeStr(t.Type)}
 	}
@@ -215,6 +257,11 @@ func (r *Resolver) typeString(t *TypeEntry, depth int) string {
 		}
 		return "(" + joinStrings(parts, " | ") + ")"
 	case "ObjectType":
+		if t.Name != nil {
+			return *t.Name
+		}
+		return "object"
+	case "DiscriminatedObjectType":
 		if t.Name != nil {
 			return *t.Name
 		}
