@@ -127,10 +127,14 @@ func (t *TypeEntry) UnmarshalJSON(data []byte) error {
 		} else {
 			switch t.Type {
 			case "DiscriminatedObjectType":
+				t.Elements = nil
+				t.ElementMap = make(map[string]Ref)
 				if err := json.Unmarshal(aux.Elements, &t.ElementMap); err != nil {
 					return fmt.Errorf("parsing DiscriminatedObjectType elements: %w", err)
 				}
 			default:
+				t.ElementMap = nil
+				t.Elements = nil
 				if err := json.Unmarshal(aux.Elements, &t.Elements); err != nil {
 					return fmt.Errorf("parsing elements: %w", err)
 				}
