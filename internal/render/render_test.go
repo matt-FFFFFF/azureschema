@@ -398,3 +398,78 @@ func TestSummaryLongDescription(t *testing.T) {
 		t.Error("full long description should not appear")
 	}
 }
+
+func TestSummaryDiscriminatedObjectType(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+	types := bicep.TypesFile{
+		// [0] StringType
+		{Type: "StringType"},
+		// [1] StringLiteralType "ftp"
+		{Type: "StringLiteralType", Value: strPtr("ftp")},
+		// [2] ObjectType "FtpPolicy"
+		{
+			Type: "ObjectType",
+			Name: strPtr("FtpPolicy"),
+			Properties: map[string]bicep.PropertyDef{
+				"name": {Type: bicep.Ref{Ref: "#/1"}, Flags: bicep.FlagRequired, Description: "Policy name"},
+			},
+		},
+		// [3] DiscriminatedObjectType "PublishingPolicies" with baseProperties
+		{
+			Type:          "DiscriminatedObjectType",
+			Name:          strPtr("PublishingPolicies"),
+			Discriminator: strPtr("name"),
+			BaseProperties: map[string]bicep.PropertyDef{
+				"id": {Type: bicep.Ref{Ref: "#/0"}, Flags: bicep.FlagReadOnly, Description: "The resource id"},
+			},
+			ElementMap: map[string]bicep.Ref{
+				"ftp": {Ref: "#/2"},
+			},
+		},
+		// [4] ResourceType body -> #/3
+		{
+			Type: "ResourceType",
+			Name: strPtr("Microsoft.Web/sites/policies@2023-01-01"),
+			Body: &bicep.Ref{Ref: "#/3"},
+		},
+	}
+	resolver := bicep.NewResolver(types, 5)
+
+	t.Run("shows baseProperties for DiscriminatedObjectType body", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := Summary(&buf, resolver, 4, "Microsoft.Web/sites/policies", "2023-01-01")
+		if err != nil {
+			t.Fatalf("Summary: %v", err)
+		}
+		output := buf.String()
+
+		// baseProperties should appear
+		if !strings.Contains(output, "id: string") {
+			t.Error("missing id property from baseProperties")
+		}
+		if !strings.Contains(output, "[READ-ONLY]") {
+			t.Error("missing READ-ONLY flag for id")
+		}
+		if !strings.Contains(output, "The resource id") {
+			t.Error("missing description for id")
+		}
+	})
+
+	t.Run("Required summary excludes readOnly baseProperties", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := Summary(&buf, resolver, 4, "Microsoft.Web/sites/policies", "2023-01-01")
+		if err != nil {
+			t.Fatalf("Summary: %v", err)
+		}
+		output := buf.String()
+
+		// id is read-only, not required
+		if strings.Contains(output, "Required: id") {
+			t.Error("id should not appear in Required list")
+		}
+		// Should show empty required (no required props)
+		if !strings.Contains(output, "Required:") {
+			t.Error("missing Required section")
+		}
+	})
+}
