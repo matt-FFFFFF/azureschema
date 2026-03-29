@@ -26,7 +26,7 @@ import (
 //	[16] ObjectType "FtpPolicy" {name: #/15 (flags=1,required)}
 //	[17] StringLiteralType "scm"
 //	[18] ObjectType "ScmPolicy" {name: #/17 (flags=1,required)}
-//	[19] DiscriminatedObjectType "PublishingPolicies" discriminator=name, baseProperties={id: #/0 (flags=10)}, elements={ftp: #/16, scm: #/18}
+//	[19] DiscriminatedObjectType "PublishingPolicies" discriminator=name, baseProperties={id: #/0 (flags=2)}, elements={ftp: #/16, scm: #/18}
 //	[20] ResourceType body -> #/19
 func buildTestTypes() TypesFile {
 	strPtr := func(s string) *string { return &s }
@@ -635,7 +635,106 @@ func TestResolveEdgeCases(t *testing.T) {
 
 func ptrStr(s string) *string { return &s }
 
-// --- DiscriminatedObjectType tests ---
+// --- DiscriminatedObjectType depth limit and stable ordering tests ---
+
+func TestDiscriminatedObjectTypeDepthAndOrder(t *testing.T) {
+	types := buildTestTypes()
+
+	t.Run("depth limit truncates DiscriminatedObjectType with object type and name", func(t *testing.T) {
+		r := NewResolver(types, 0)
+		// Resolve from index 20 with depth 0 — body is at index 19 which resolves at depth 0.
+		// The id property ref (index 0) will be resolved at depth 1, exceeding maxDepth=0.
+		resolved, err := r.ResolveResourceType(20)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Top-level DiscriminatedObjectType resolves at depth 0 — not truncated.
+		if resolved.Type != "object" {
+			t.Errorf("Type = %q, want object", resolved.Type)
+		}
+		if resolved.Name != "PublishingPolicies" {
+			t.Errorf("Name = %q, want PublishingPolicies", resolved.Name)
+		}
+		// id property is resolved at depth 1 which exceeds maxDepth=0, so it should be truncated.
+		id := resolved.Properties["id"]
+		if id == nil {
+			t.Fatal("id property missing")
+		}
+		if id.Truncated != "depth limit exceeded" {
+			t.Errorf("id.Truncated = %q, want 'depth limit exceeded'", id.Truncated)
+		}
+		// StringType is not an ObjectType/DiscriminatedObjectType, so typeStr is used.
+		if id.Type != "StringType" {
+			t.Errorf("id.Type = %q, want StringType", id.Type)
+		}
+	})
+
+	t.Run("DiscriminatedObjectType as nested property truncated with object type and name", func(t *testing.T) {
+		strPtr := func(s string) *string { return &s }
+		localTypes := TypesFile{
+			// [0] StringType
+			{Type: "StringType"},
+			// [1] DiscriminatedObjectType "Policies"
+			{
+				Type:          "DiscriminatedObjectType",
+				Name:          strPtr("Policies"),
+				Discriminator: strPtr("kind"),
+				BaseProperties: map[string]PropertyDef{
+					"kind": {Type: Ref{Ref: "#/0"}, Flags: FlagRequired},
+				},
+				ElementMap: map[string]Ref{},
+			},
+			// [2] ObjectType "Root" with a property pointing to the DiscriminatedObjectType
+			{
+				Type: "ObjectType",
+				Name: strPtr("Root"),
+				Properties: map[string]PropertyDef{
+					"policy": {Type: Ref{Ref: "#/1"}, Flags: 0},
+				},
+			},
+			// [3] ResourceType body -> #/2
+			{Type: "ResourceType", Body: &Ref{Ref: "#/2"}},
+		}
+		r := NewResolver(localTypes, 0)
+		resolved, err := r.ResolveResourceType(3)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		policy := resolved.Properties["policy"]
+		if policy == nil {
+			t.Fatal("policy property missing")
+		}
+		// The DiscriminatedObjectType at depth 1 exceeds maxDepth=0.
+		if policy.Truncated != "depth limit exceeded" {
+			t.Errorf("policy.Truncated = %q, want 'depth limit exceeded'", policy.Truncated)
+		}
+		// Should have Type="object" and Name="Policies", not Type="DiscriminatedObjectType".
+		if policy.Type != "object" {
+			t.Errorf("policy.Type = %q, want object", policy.Type)
+		}
+		if policy.Name != "Policies" {
+			t.Errorf("policy.Name = %q, want Policies", policy.Name)
+		}
+	})
+
+	t.Run("DiscriminatedObjectType oneOf is in stable alphabetical order", func(t *testing.T) {
+		r := NewResolver(types, 5)
+		resolved, err := r.ResolveResourceType(20)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(resolved.OneOf) != 2 {
+			t.Fatalf("OneOf length = %d, want 2", len(resolved.OneOf))
+		}
+		// Keys are "ftp" and "scm" — alphabetical order means ftp comes first.
+		if resolved.OneOf[0].Name != "FtpPolicy" {
+			t.Errorf("OneOf[0].Name = %q, want FtpPolicy", resolved.OneOf[0].Name)
+		}
+		if resolved.OneOf[1].Name != "ScmPolicy" {
+			t.Errorf("OneOf[1].Name = %q, want ScmPolicy", resolved.OneOf[1].Name)
+		}
+	})
+}
 
 func TestDiscriminatedObjectType(t *testing.T) {
 	types := buildTestTypes()

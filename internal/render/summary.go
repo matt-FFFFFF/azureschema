@@ -14,6 +14,22 @@ const (
 	maxDescLen = 120
 )
 
+// effectiveProperties returns the merged property map for a TypeEntry,
+// combining Properties and BaseProperties for DiscriminatedObjectType.
+func effectiveProperties(t *bicep.TypeEntry) map[string]bicep.PropertyDef {
+	if t.Type != "DiscriminatedObjectType" || len(t.BaseProperties) == 0 {
+		return t.Properties
+	}
+	merged := make(map[string]bicep.PropertyDef, len(t.Properties)+len(t.BaseProperties))
+	for k, v := range t.Properties {
+		merged[k] = v
+	}
+	for k, v := range t.BaseProperties {
+		merged[k] = v
+	}
+	return merged
+}
+
 // Summary renders a human-readable summary of the resource type schema.
 func Summary(w io.Writer, resolver *bicep.Resolver, typeIndex int, resourceType, apiVersion string) error {
 	body, err := resolver.BodyType(typeIndex)
@@ -33,10 +49,11 @@ func Summary(w io.Writer, resolver *bicep.Resolver, typeIndex int, resourceType,
 
 	printProps(w, resolver, body, "", 0)
 
-	// Collect required top-level properties
+	// Collect required top-level properties (including baseProperties for DiscriminatedObjectType).
+	allProps := effectiveProperties(body)
 	var required []string
-	for _, name := range bicep.SortedPropertyNames(body.Properties) {
-		prop := body.Properties[name]
+	for _, name := range bicep.SortedPropertyNames(allProps) {
+		prop := allProps[name]
 		if prop.IsRequired() {
 			required = append(required, name)
 		}
@@ -50,14 +67,15 @@ func Summary(w io.Writer, resolver *bicep.Resolver, typeIndex int, resourceType,
 	return nil
 }
 
-// printProps recursively prints properties of an ObjectType with indentation.
+// printProps recursively prints properties of an ObjectType or DiscriminatedObjectType with indentation.
 func printProps(w io.Writer, resolver *bicep.Resolver, t *bicep.TypeEntry, indent string, depth int) {
-	if t.Properties == nil {
+	props := effectiveProperties(t)
+	if props == nil {
 		return
 	}
 
-	for _, name := range bicep.SortedPropertyNames(t.Properties) {
-		prop := t.Properties[name]
+	for _, name := range bicep.SortedPropertyNames(props) {
+		prop := props[name]
 
 		// Resolve the type ref to get the actual type entry.
 		var resolved *bicep.TypeEntry
@@ -95,8 +113,8 @@ func printProps(w io.Writer, resolver *bicep.Resolver, t *bicep.TypeEntry, inden
 
 		fmt.Fprintf(w, "%s  %s: %s%s%s\n", indent, name, tstr, flags, desc)
 
-		// Recurse into nested ObjectType properties
-		if resolved != nil && resolved.Type == "ObjectType" && resolved.Properties != nil {
+		// Recurse into nested ObjectType or DiscriminatedObjectType properties
+		if resolved != nil && (resolved.Type == "ObjectType" || resolved.Type == "DiscriminatedObjectType") && (resolved.Properties != nil || resolved.BaseProperties != nil) {
 			if depth < resolver.MaxDepth {
 				printProps(w, resolver, resolved, indent+"    ", depth+1)
 			} else {

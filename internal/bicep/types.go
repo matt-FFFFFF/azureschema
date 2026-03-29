@@ -46,7 +46,7 @@ type TypeEntry struct {
 	Elements []Ref `json:"elements,omitempty"`
 
 	// DiscriminatedObjectType fields — map of name → $ref
-	ElementMap map[string]Ref `json:"elementMap,omitempty"`
+	ElementMap map[string]Ref `json:"-"`
 
 	// ResourceType fields
 	Body *Ref `json:"body,omitempty"`
@@ -119,15 +119,21 @@ func (t *TypeEntry) UnmarshalJSON(data []byte) error {
 	}
 
 	// Now decode "elements" according to the concrete type.
-	if len(aux.Elements) > 0 && string(aux.Elements) != "null" {
-		switch t.Type {
-		case "DiscriminatedObjectType":
-			if err := json.Unmarshal(aux.Elements, &t.ElementMap); err != nil {
-				return fmt.Errorf("parsing DiscriminatedObjectType elements: %w", err)
-			}
-		default:
-			if err := json.Unmarshal(aux.Elements, &t.Elements); err != nil {
-				return fmt.Errorf("parsing elements: %w", err)
+	if len(aux.Elements) > 0 {
+		if string(aux.Elements) == "null" {
+			// Match encoding/json semantics: a present null clears the field.
+			t.Elements = nil
+			t.ElementMap = nil
+		} else {
+			switch t.Type {
+			case "DiscriminatedObjectType":
+				if err := json.Unmarshal(aux.Elements, &t.ElementMap); err != nil {
+					return fmt.Errorf("parsing DiscriminatedObjectType elements: %w", err)
+				}
+			default:
+				if err := json.Unmarshal(aux.Elements, &t.Elements); err != nil {
+					return fmt.Errorf("parsing elements: %w", err)
+				}
 			}
 		}
 	}

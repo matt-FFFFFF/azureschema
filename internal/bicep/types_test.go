@@ -325,6 +325,34 @@ func TestTypeEntryUnmarshalJSON(t *testing.T) {
 		}
 	})
 
+	t.Run("null elements clears both fields", func(t *testing.T) {
+		data := []byte(`{"$type": "UnionType", "elements": null}`)
+		var te TypeEntry
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(te.Elements) != 0 {
+			t.Errorf("Elements should be nil/empty after null, got %d", len(te.Elements))
+		}
+		if len(te.ElementMap) != 0 {
+			t.Errorf("ElementMap should be nil/empty after null, got %d", len(te.ElementMap))
+		}
+	})
+
+	t.Run("null elements for DiscriminatedObjectType clears both fields", func(t *testing.T) {
+		data := []byte(`{"$type": "DiscriminatedObjectType", "name": "Test", "elements": null}`)
+		var te TypeEntry
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(te.Elements) != 0 {
+			t.Errorf("Elements should be nil/empty after null, got %d", len(te.Elements))
+		}
+		if len(te.ElementMap) != 0 {
+			t.Errorf("ElementMap should be nil/empty after null, got %d", len(te.ElementMap))
+		}
+	})
+
 	t.Run("invalid JSON", func(t *testing.T) {
 		data := []byte(`{not valid json`)
 		var te TypeEntry
