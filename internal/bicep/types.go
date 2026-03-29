@@ -33,18 +33,29 @@ type TypeEntry struct {
 	MinValue *int64 `json:"minValue,omitempty"`
 	MaxValue *int64 `json:"maxValue,omitempty"`
 
-	// ObjectType fields
-	Name       *string                `json:"name,omitempty"`
-	Properties map[string]PropertyDef `json:"properties,omitempty"`
+	// ObjectType / DiscriminatedObjectType fields
+	Name           *string                `json:"name,omitempty"`
+	Properties     map[string]PropertyDef `json:"properties,omitempty"`
+	BaseProperties map[string]PropertyDef `json:"baseProperties,omitempty"`
+	Discriminator  *string                `json:"discriminator,omitempty"`
 
 	// ArrayType fields
 	ItemType *Ref `json:"itemType,omitempty"`
 
-	// UnionType fields
+	// UnionType fields — array of $ref
 	Elements []Ref `json:"elements,omitempty"`
+
+	// DiscriminatedObjectType fields — map of name → $ref
+	ElementMap map[string]Ref `json:"elementMap,omitempty"`
 
 	// ResourceType fields
 	Body *Ref `json:"body,omitempty"`
+
+	// ResourceFunctionType fields
+	ResourceType *string `json:"resourceType,omitempty"`
+	ApiVersion   *string `json:"apiVersion,omitempty"`
+	Output       *Ref    `json:"output,omitempty"`
+	Input        *Ref    `json:"input,omitempty"`
 }
 
 // PropertyDef describes a property within an ObjectType.
@@ -80,7 +91,8 @@ func (p PropertyDef) IsReadOnly() bool { return p.Flags&FlagReadOnly != 0 }
 // IsWriteOnly returns true if the WriteOnly bit is set.
 func (p PropertyDef) IsWriteOnly() bool { return p.Flags&FlagWriteOnly != 0 }
 
-// UnmarshalJSON implements custom unmarshalling to handle the "$type" discriminator.
+// UnmarshalJSON implements custom unmarshalling to handle the "$type" discriminator
+// and the polymorphic "elements" field ([]Ref for UnionType, map[string]Ref for DiscriminatedObjectType).
 func (t *TypeEntry) UnmarshalJSON(data []byte) error {
 	// First extract the discriminator.
 	var disc struct {
@@ -91,14 +103,35 @@ func (t *TypeEntry) UnmarshalJSON(data []byte) error {
 	}
 	t.Type = disc.Type
 
-	// Use an alias to avoid infinite recursion.
+	// Use an alias to avoid infinite recursion, but omit the "elements" field
+	// since it is polymorphic: []Ref for UnionType, map[string]Ref for DiscriminatedObjectType.
 	type Alias TypeEntry
 	aux := &struct {
 		*Alias
+		// Shadow both elements fields so the alias does not try to decode them.
+		Elements   json.RawMessage `json:"elements"`
+		ElementMap json.RawMessage `json:"-"`
 	}{
 		Alias: (*Alias)(t),
 	}
-	return json.Unmarshal(data, aux)
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Now decode "elements" according to the concrete type.
+	if len(aux.Elements) > 0 && string(aux.Elements) != "null" {
+		switch t.Type {
+		case "DiscriminatedObjectType":
+			if err := json.Unmarshal(aux.Elements, &t.ElementMap); err != nil {
+				return fmt.Errorf("parsing DiscriminatedObjectType elements: %w", err)
+			}
+		default:
+			if err := json.Unmarshal(aux.Elements, &t.Elements); err != nil {
+				return fmt.Errorf("parsing elements: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // TypesFile is a parsed types.json - an array of TypeEntry.

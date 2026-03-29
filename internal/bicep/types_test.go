@@ -278,6 +278,53 @@ func TestTypeEntryUnmarshalJSON(t *testing.T) {
 		}
 	})
 
+	t.Run("DiscriminatedObjectType", func(t *testing.T) {
+		data := []byte(`{
+			"$type": "DiscriminatedObjectType",
+			"name": "microsoft.web/sites/basicpublishingcredentialspolicies",
+			"discriminator": "name",
+			"baseProperties": {
+				"id": {"type": {"$ref": "#/0"}, "flags": 10, "description": "The resource id"}
+			},
+			"elements": {
+				"ftp": {"$ref": "#/1"},
+				"scm": {"$ref": "#/2"}
+			}
+		}`)
+		var te TypeEntry
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if te.Type != "DiscriminatedObjectType" {
+			t.Errorf("Type = %q, want DiscriminatedObjectType", te.Type)
+		}
+		if te.Name == nil || *te.Name != "microsoft.web/sites/basicpublishingcredentialspolicies" {
+			t.Errorf("Name = %v", te.Name)
+		}
+		if te.Discriminator == nil || *te.Discriminator != "name" {
+			t.Errorf("Discriminator = %v, want name", te.Discriminator)
+		}
+		if len(te.BaseProperties) != 1 {
+			t.Fatalf("BaseProperties length = %d, want 1", len(te.BaseProperties))
+		}
+		if te.BaseProperties["id"].Flags != 10 {
+			t.Errorf("BaseProperties[id].Flags = %d, want 10", te.BaseProperties["id"].Flags)
+		}
+		// Elements should be empty (it's a map type, stored in ElementMap)
+		if len(te.Elements) != 0 {
+			t.Errorf("Elements should be empty for DiscriminatedObjectType, got %d", len(te.Elements))
+		}
+		if len(te.ElementMap) != 2 {
+			t.Fatalf("ElementMap length = %d, want 2", len(te.ElementMap))
+		}
+		if te.ElementMap["ftp"].Ref != "#/1" {
+			t.Errorf("ElementMap[ftp] = %q, want #/1", te.ElementMap["ftp"].Ref)
+		}
+		if te.ElementMap["scm"].Ref != "#/2" {
+			t.Errorf("ElementMap[scm] = %q, want #/2", te.ElementMap["scm"].Ref)
+		}
+	})
+
 	t.Run("invalid JSON", func(t *testing.T) {
 		data := []byte(`{not valid json`)
 		var te TypeEntry

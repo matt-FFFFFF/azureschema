@@ -22,6 +22,12 @@ import (
 //	[12] ObjectType "MidLevel" {nested: #/11}
 //	[13] ObjectType "TopLevel" {mid: #/12}
 //	[14] ResourceType body -> #/13
+//	[15] StringLiteralType "ftp"
+//	[16] ObjectType "FtpPolicy" {name: #/15 (flags=1,required)}
+//	[17] StringLiteralType "scm"
+//	[18] ObjectType "ScmPolicy" {name: #/17 (flags=1,required)}
+//	[19] DiscriminatedObjectType "PublishingPolicies" discriminator=name, baseProperties={id: #/0 (flags=10)}, elements={ftp: #/16, scm: #/18}
+//	[20] ResourceType body -> #/19
 func buildTestTypes() TypesFile {
 	strPtr := func(s string) *string { return &s }
 	int64Ptr := func(i int64) *int64 { return &i }
@@ -98,6 +104,45 @@ func buildTestTypes() TypesFile {
 			Type: "ResourceType",
 			Name: strPtr("Microsoft.Test/deep@2023-01-01"),
 			Body: &Ref{Ref: "#/13"},
+		},
+		// [15] StringLiteralType "ftp"
+		{Type: "StringLiteralType", Value: strPtr("ftp")},
+		// [16] ObjectType "FtpPolicy" {name: #/15 (required)}
+		{
+			Type: "ObjectType",
+			Name: strPtr("FtpPolicy"),
+			Properties: map[string]PropertyDef{
+				"name": {Type: Ref{Ref: "#/15"}, Flags: FlagRequired, Description: "Policy name"},
+			},
+		},
+		// [17] StringLiteralType "scm"
+		{Type: "StringLiteralType", Value: strPtr("scm")},
+		// [18] ObjectType "ScmPolicy" {name: #/17 (required)}
+		{
+			Type: "ObjectType",
+			Name: strPtr("ScmPolicy"),
+			Properties: map[string]PropertyDef{
+				"name": {Type: Ref{Ref: "#/17"}, Flags: FlagRequired, Description: "Policy name"},
+			},
+		},
+		// [19] DiscriminatedObjectType "PublishingPolicies"
+		{
+			Type:          "DiscriminatedObjectType",
+			Name:          strPtr("PublishingPolicies"),
+			Discriminator: strPtr("name"),
+			BaseProperties: map[string]PropertyDef{
+				"id": {Type: Ref{Ref: "#/0"}, Flags: FlagReadOnly, Description: "The resource id"},
+			},
+			ElementMap: map[string]Ref{
+				"ftp": {Ref: "#/16"},
+				"scm": {Ref: "#/18"},
+			},
+		},
+		// [20] ResourceType -> body #/19
+		{
+			Type: "ResourceType",
+			Name: strPtr("Microsoft.Test/discriminated@2023-01-01"),
+			Body: &Ref{Ref: "#/19"},
 		},
 	}
 }
@@ -589,3 +634,107 @@ func TestResolveEdgeCases(t *testing.T) {
 }
 
 func ptrStr(s string) *string { return &s }
+
+// --- DiscriminatedObjectType tests ---
+
+func TestDiscriminatedObjectType(t *testing.T) {
+	types := buildTestTypes()
+	r := NewResolver(types, 5)
+
+	t.Run("resolve includes baseProperties", func(t *testing.T) {
+		resolved, err := r.ResolveResourceType(20)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.Type != "object" {
+			t.Errorf("Type = %q, want object", resolved.Type)
+		}
+		if resolved.Name != "PublishingPolicies" {
+			t.Errorf("Name = %q, want PublishingPolicies", resolved.Name)
+		}
+		id, ok := resolved.Properties["id"]
+		if !ok {
+			t.Fatal("expected 'id' in baseProperties")
+		}
+		if id.Type != "string" {
+			t.Errorf("id.Type = %q, want string", id.Type)
+		}
+		if id.ReadOnly == nil || !*id.ReadOnly {
+			t.Error("id should be readOnly")
+		}
+	})
+
+	t.Run("resolve includes discriminated variants as oneOf", func(t *testing.T) {
+		resolved, err := r.ResolveResourceType(20)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(resolved.OneOf) != 2 {
+			t.Fatalf("OneOf length = %d, want 2", len(resolved.OneOf))
+		}
+		// Both variants should be object types (FtpPolicy and ScmPolicy).
+		for _, variant := range resolved.OneOf {
+			if variant.Type != "object" {
+				t.Errorf("variant.Type = %q, want object", variant.Type)
+			}
+		}
+	})
+
+	t.Run("TypeString returns name", func(t *testing.T) {
+		got := r.TypeString(&types[19])
+		if got != "PublishingPolicies" {
+			t.Errorf("TypeString = %q, want PublishingPolicies", got)
+		}
+	})
+
+	t.Run("TypeString without name returns object", func(t *testing.T) {
+		unnamed := TypeEntry{Type: "DiscriminatedObjectType"}
+		got := r.TypeString(&unnamed)
+		if got != "object" {
+			t.Errorf("TypeString = %q, want object", got)
+		}
+	})
+
+	t.Run("unmarshal DiscriminatedObjectType from types file", func(t *testing.T) {
+		// Mirrors the real bicep-types-az format that triggered the original bug.
+		data := []byte(`[
+			{"$type":"StringType"},
+			{"$type":"StringLiteralType","value":"ftp"},
+			{"$type":"StringLiteralType","value":"scm"},
+			{
+				"$type":"DiscriminatedObjectType",
+				"name":"microsoft.web/sites/basicpublishingcredentialspolicies",
+				"discriminator":"name",
+				"baseProperties":{},
+				"elements":{
+					"ftp":{"$ref":"#/1"},
+					"scm":{"$ref":"#/2"}
+				}
+			},
+			{"$type":"ResourceType","name":"Microsoft.Web/sites/basicPublishingCredentialsPolicies@2019-08-01","body":{"$ref":"#/3"}}
+		]`)
+		tf, err := ParseTypesFile(data)
+		if err != nil {
+			t.Fatalf("ParseTypesFile: %v", err)
+		}
+		if len(tf) != 5 {
+			t.Fatalf("len = %d, want 5", len(tf))
+		}
+		dot := tf[3]
+		if dot.Type != "DiscriminatedObjectType" {
+			t.Errorf("Type = %q, want DiscriminatedObjectType", dot.Type)
+		}
+		if len(dot.Elements) != 0 {
+			t.Errorf("Elements should be empty, got %d", len(dot.Elements))
+		}
+		if len(dot.ElementMap) != 2 {
+			t.Fatalf("ElementMap length = %d, want 2", len(dot.ElementMap))
+		}
+		if dot.ElementMap["ftp"].Ref != "#/1" {
+			t.Errorf("ElementMap[ftp] = %q, want #/1", dot.ElementMap["ftp"].Ref)
+		}
+		if dot.ElementMap["scm"].Ref != "#/2" {
+			t.Errorf("ElementMap[scm] = %q, want #/2", dot.ElementMap["scm"].Ref)
+		}
+	})
+}
