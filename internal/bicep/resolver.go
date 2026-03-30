@@ -72,7 +72,7 @@ func (r *Resolver) ResolveResourceType(typeIndex int) (*ResolvedType, error) {
 func (r *Resolver) resolve(t *TypeEntry, depth int) *ResolvedType {
 	if depth > r.MaxDepth {
 		res := &ResolvedType{Truncated: "depth limit exceeded"}
-		if t.Type == "ObjectType" {
+		if t.Type == "ObjectType" || t.Type == "DiscriminatedObjectType" {
 			res.Type = "object"
 			if t.Name != nil {
 				res.Name = *t.Name
@@ -198,7 +198,13 @@ func (r *Resolver) resolve(t *TypeEntry, depth int) *ResolvedType {
 				res.Properties[name] = propRes
 			}
 		}
-		for _, ref := range t.ElementMap {
+		keys := make([]string, 0, len(t.ElementMap))
+		for k := range t.ElementMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			ref := t.ElementMap[k]
 			if idx, err := ref.Index(); err == nil && idx >= 0 && idx < len(r.Types) {
 				res.OneOf = append(res.OneOf, r.resolve(&r.Types[idx], depth+1))
 			}

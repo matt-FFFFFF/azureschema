@@ -325,6 +325,74 @@ func TestTypeEntryUnmarshalJSON(t *testing.T) {
 		}
 	})
 
+	t.Run("null elements clears both fields", func(t *testing.T) {
+		data := []byte(`{"$type": "UnionType", "elements": null}`)
+		te := TypeEntry{
+			Elements:   []Ref{{Ref: "#/1"}},
+			ElementMap: map[string]Ref{"a": {Ref: "#/0"}},
+		}
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(te.Elements) != 0 {
+			t.Errorf("Elements should be nil/empty after null, got %d", len(te.Elements))
+		}
+		if len(te.ElementMap) != 0 {
+			t.Errorf("ElementMap should be nil/empty after null, got %d", len(te.ElementMap))
+		}
+	})
+
+	t.Run("null elements for DiscriminatedObjectType clears both fields", func(t *testing.T) {
+		data := []byte(`{"$type": "DiscriminatedObjectType", "name": "Test", "elements": null}`)
+		te := TypeEntry{
+			Elements:   []Ref{{Ref: "#/1"}},
+			ElementMap: map[string]Ref{"ftp": {Ref: "#/2"}},
+		}
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(te.Elements) != 0 {
+			t.Errorf("Elements should be nil/empty after null, got %d", len(te.Elements))
+		}
+		if len(te.ElementMap) != 0 {
+			t.Errorf("ElementMap should be nil/empty after null, got %d", len(te.ElementMap))
+		}
+	})
+
+	t.Run("DiscriminatedObjectType elements clears stale Elements", func(t *testing.T) {
+		// Pre-populate Elements with stale data, then unmarshal as DiscriminatedObjectType.
+		te := TypeEntry{
+			Elements: []Ref{{Ref: "#/1"}, {Ref: "#/2"}},
+		}
+		data := []byte(`{"$type": "DiscriminatedObjectType", "name": "T", "elements": {"ftp": {"$ref": "#/3"}}}`)
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(te.Elements) != 0 {
+			t.Errorf("Elements should be cleared after DiscriminatedObjectType unmarshal, got %d", len(te.Elements))
+		}
+		if len(te.ElementMap) != 1 {
+			t.Errorf("ElementMap should have 1 entry, got %d", len(te.ElementMap))
+		}
+	})
+
+	t.Run("UnionType elements clears stale ElementMap", func(t *testing.T) {
+		// Pre-populate ElementMap with stale data, then unmarshal as UnionType.
+		te := TypeEntry{
+			ElementMap: map[string]Ref{"old": {Ref: "#/9"}, "stale": {Ref: "#/8"}},
+		}
+		data := []byte(`{"$type": "UnionType", "elements": [{"$ref": "#/1"}]}`)
+		if err := json.Unmarshal(data, &te); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(te.ElementMap) != 0 {
+			t.Errorf("ElementMap should be cleared after UnionType unmarshal, got %d", len(te.ElementMap))
+		}
+		if len(te.Elements) != 1 {
+			t.Errorf("Elements should have 1 entry, got %d", len(te.Elements))
+		}
+	})
+
 	t.Run("invalid JSON", func(t *testing.T) {
 		data := []byte(`{not valid json`)
 		var te TypeEntry
